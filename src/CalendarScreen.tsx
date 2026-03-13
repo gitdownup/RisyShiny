@@ -5,12 +5,12 @@ export default function CalendarScreen() {
     const hoursOfDay = Array.from({ length: 24 }, (_, i) => i);
 
     // Track which hour rectangle is being typed into
-    const [editingHour, setEditingHour] = React.useState(null);
+    const [editingHour, setEditingHour] = React.useState<number | null>(null);
 
     // Store the text of each rectangle
-    const [routines, setRoutines] = React.useState({});
+    const [routines, setRoutines] = React.useState<Record<number, string>>({});
 
-    const handleInputChange = (hour, value) => {
+    const handleInputChange = (hour: number, value: string) => {
         setRoutines({ ...routines, [hour]: value });
     };
 

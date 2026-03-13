@@ -1,27 +1,37 @@
+// Import react stuff
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { globalStyles } from 'src/GlobalStyles';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Now it's only two levels up to reach the src folder
-import WelcomeScreen from 'src/WelcomeScreen';
+// Import files
+import LoginScreen from 'src/LoginScreen';
+import SignupScreen from 'src/SignupScreen';
 import CalendarScreen from 'src/CalendarScreen';
-import { processTaskBank } from 'src/AIJudge';
 
+// Import test case files
+import { processTaskBank } from 'src/AIJudgeTestCases';
+
+// Execute tests
 processTaskBank();
 
+// Begin app event loop
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+  const [currentScreen, setCurrentScreen] = React.useState<'login' | 'signup' | 'calendar'>('login');
+
+  const screens = {
+    login: <LoginScreen
+        onLogin={() => setCurrentScreen('calendar')}
+        onGoToSignupScreen={() => setCurrentScreen('signup')}
+    />,
+    signup: <SignupScreen
+        onGoToLoginScreen={() => setCurrentScreen('login')}
+    />,
+    calendar: <CalendarScreen />
+  };
 
   return (
-      <SafeAreaView style={styles.app}>
-        {isLoggedIn ? (<CalendarScreen />) : (<WelcomeScreen onLogin={() => setIsLoggedIn(true)}/>)}
+      <SafeAreaView style={globalStyles.appContainer}>
+        {screens[currentScreen]}
       </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  app: {
-    flex: 1,
-    backgroundColor: '#fff',
-  }
-});

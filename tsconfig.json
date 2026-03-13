@@ -5,6 +5,8 @@
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "baseUrl": ".",
+    "noEmit": true,
+    "outDir": "./dist",
     "paths": {
       "src/*": ["src/*"],
       "@/*": ["./*"]
@@ -15,5 +17,5 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
-  ]
+  ],
 }
