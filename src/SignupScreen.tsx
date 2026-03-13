@@ -76,6 +76,10 @@ export default function SignupScreen({ onGoToLoginScreen }: { onGoToLoginScreen:
                 <TouchableOpacity style={globalStyles.loginButton} onPress={handleSubmit}>
                     <Text style={globalStyles.buttonText}>Start game</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity style={globalStyles.loginButton} onPress={onGoToLoginScreen}>
+                    <Text style={globalStyles.buttonText}>Have an account. Press here to login.</Text>
+                </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
     );

@@ -26,29 +26,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="21cc9b94-2d20-443b-93a4-24b48d276e47" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/AIJudgeTestCases.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/GlobalStyles.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/SignupScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(tabs)/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(tabs)/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/clion-Debug-log.txt" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/clion-Debug-log.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/AIJudge.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/AIJudge.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/AIJudge.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/App.css" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/App.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/App.test.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/CalendarScreen.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/CalendarScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/CalendarScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/WelcomeScreen.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/WelcomeScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/LoginScreen.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/index.css" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/index.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/logo.svg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/reportWebVitals.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/setupTests.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tsconfig.json" beforeDir="false" afterPath="$PROJECT_DIR$/tsconfig.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/SignupScreen.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/SignupScreen.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -127,7 +106,7 @@
       <workItem from="1773086717301" duration="12376000" />
       <workItem from="1773255456935" duration="713000" />
       <workItem from="1773258752576" duration="991000" />
-      <workItem from="1773343039671" duration="18005000" />
+      <workItem from="1773343039671" duration="18964000" />
     </task>
     <servers />
   </component>
