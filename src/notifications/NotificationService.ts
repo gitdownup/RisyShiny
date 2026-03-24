@@ -30,16 +30,22 @@ class NotificationService {
   private initialized = false;
   private expoPushToken: string | null = null;
 
-  async initialize(): Promise<void> {
+  // Add a parameter here, defaulting to false
+  async initialize(enablePush: boolean = false): Promise<void> {
     if (this.initialized) return;
 
-    if (!Device.isDevice) {
+    if (!Device.isDevice && enablePush) {
       console.warn('[Notifications] Push notifications require a physical device.');
     }
 
     await this.requestPermissions();
     await this.setupAndroidChannel();
-    this.expoPushToken = await this.registerForPushNotifications();
+
+    // ONLY attempt to get a token if we explicitly ask for it
+    if (enablePush) {
+      this.expoPushToken = await this.registerForPushNotifications();
+    }
+
     this.initialized = true;
   }
 

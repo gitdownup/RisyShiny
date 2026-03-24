@@ -14,12 +14,13 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/RisyShinyForegroundIcon.png",
+        "backgroundImage": "./assets/images/RisyShinyBackgroundIcon.png",
+        "monochromeImage": "./assets/images/RisyShinyMonochromeIcon.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.risyshiny"
     },
     "web": {
       "output": "static",
