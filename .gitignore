@@ -30,6 +30,9 @@ yarn-error.log*
 # expo
 expo-env.d.ts
 *.js
-.expo/
+
+# Android Build Artifacts
+android/app/.cxx/
+android/app/build/
+android/.gradle/
 android/build/
-bin/

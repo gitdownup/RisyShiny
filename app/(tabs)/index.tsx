@@ -12,7 +12,7 @@ import CalendarScreen from 'src/CalendarScreen';
 import { processTaskBank } from 'src/AIJudgeTestCases';
 
 // Execute tests
-processTaskBank();
+//processTaskBank();
 
 // Begin app event loop
 export default function App() {
