@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, ActivityIndicator, Alert } from 'react-native';
 import supabase from 'src/config/supabaseClient';
 import { getTaskDifficulty, getRejudgedTaskDifficulty } from 'src/AIJudge';
 import { notificationService } from 'src/notifications/NotificationService';
@@ -8,6 +8,7 @@ interface AIDataState {
     score?: number;
     reasoning?: string;
     has_menu_open?: boolean;
+    is_reported?: boolean;
 }
 
 export default function CalendarScreen() {
@@ -57,7 +58,8 @@ export default function CalendarScreen() {
                 fetchedAIData[hour] = {
                     score: event.score,
                     reasoning: event.description,
-                    has_menu_open: event.has_menu_open
+                    has_menu_open: event.has_menu_open,
+                    is_reported: event.is_reported
                 };
             });
 
@@ -143,7 +145,8 @@ export default function CalendarScreen() {
                             start_time: startTime,
                             end_time: endTime,
                             score: 0,
-                            has_menu_open: false
+                            has_menu_open: false,
+                            is_reported: false
                         })
                         .select()
                         .single();
@@ -188,6 +191,7 @@ export default function CalendarScreen() {
                     setAIData(prev => ({...prev, [hour]: {
                             score: result.score,
                             reasoning: result.reasoning,
+                            is_reported: prev[hour]?.is_reported || false
                         }}));
 
                     // Update Database
@@ -302,6 +306,48 @@ export default function CalendarScreen() {
         }
     };
 
+    const handleReportTask = async (hour: number) => {
+        const existingId = eventIds[hour];
+        if (!existingId) return;
+
+        Alert.alert(
+            "Report Task",
+            `Are you sure you want to report the task at ${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Report",
+                    style: "destructive",
+                    onPress: async () => {
+                        // Change the UI immediately
+                        setAIData(prev => ({
+                            ...prev,
+                            [hour]: { ...prev[hour], is_reported: true }
+                        }));
+
+                        // Update Supabase
+                        const { error } = await supabase
+                            .from('events')
+                            .update({ is_reported: true })
+                            .eq('id', existingId);
+
+                        // If Supabase connection fails, undo the UI change
+                        if (error) {
+                            console.error("Failed to report task to database:", error.message);
+                            setAIData(prev => ({
+                                ...prev,
+                                [hour]: { ...prev[hour], is_reported: false }
+                            }));
+                            Alert.alert("Error", "Failed to report task. Please try again.");
+                        } else {
+                            console.log(`Task at hour ${hour} successfully reported.`);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const handleSubmitDebate = async () => {
         if (debateHour === null || !debateText.trim()) return;
 
@@ -375,7 +421,8 @@ export default function CalendarScreen() {
                     const timeLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
 
                     const hasRoutine = !!routines[hour];
-                    const currentAIData = AIData[hour] || {};
+                    const currentAIData = AIData[hour] || {}
+                    const isReported = currentAIData.is_reported;
 
                     return (
                         <View key={hour}>
@@ -428,6 +475,8 @@ export default function CalendarScreen() {
                         {/* Row Expansion rectangle (event's menu) */}
                         {currentAIData.has_menu_open && (
                             <View style={styles.expandedRow}>
+
+                                {/* Done button */}
                                 <TouchableOpacity
                                     style={styles.doneButton}
                                     onPress={() => handleCompleteTask(hour)}
@@ -435,6 +484,18 @@ export default function CalendarScreen() {
                                     <Text style={styles.doneText}>Press{'\n'}when done{'\n'}with task</Text>
                                 </TouchableOpacity>
 
+                                {/* Report Button */}
+                                <TouchableOpacity
+                                    style={[styles.reportButton, isReported && styles.reportedButton]}
+                                    onPress={() => handleReportTask(hour)}
+                                    disabled={isReported}
+                                >
+                                    <Text style={[styles.reportText, isReported && styles.reportedText]}>
+                                        {isReported ? 'Reported' : 'Report'}
+                                    </Text>
+                                </TouchableOpacity>
+
+                                {/* Reasoning Area */}
                                 <TouchableOpacity
                                     style={styles.reasoningArea}
                                     activeOpacity={0.8}
@@ -624,6 +685,28 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: '#000',
         fontSize: 12,
+    },
+    reportButton: {
+        backgroundColor: '#fca5a5',
+        width: 70,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 5,
+        borderRightWidth: 1,
+        borderRightColor: '#333',
+    },
+    reportedButton: {
+        backgroundColor: '#e5e7eb',
+    },
+    reportText: {
+        textAlign: 'center',
+        color: '#000',
+        fontSize: 12,
+        fontWeight: 'bold'
+    },
+    reportedText: {
+        color: '#6b7280',
+        fontStyle: 'italic'
     },
     reasoningArea: {
         flex: 1,
