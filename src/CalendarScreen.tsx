@@ -351,7 +351,7 @@ export default function CalendarScreen() {
                 <View style={styles.inventoryContainer}>
                     <Text style={styles.inventoryLabel}>Items</Text>
                     <View style={styles.hotbar}>
-                        {[...Array(6)].map((_, index) => (
+                        {[...new Array(6)].map((_, index) => (
                             <TouchableOpacity
                                 key={index}
                                 style={styles.inventorySlot}

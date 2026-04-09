@@ -91,7 +91,7 @@ Reasoning: A one-sentence explanation of why it fits this specific tier.`;
         let resultPayload;
         if (scoreMatch && reasoningMatch) {
             resultPayload = {
-                score: parseInt(scoreMatch[1], 10),
+                score: Number.parseInt(scoreMatch[1], 10),
                 reasoning: reasoningMatch[1].trim(),
                 AIExecuted: true
             };
