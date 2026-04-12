@@ -1,107 +1,198 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
+  View,
   Text,
   TouchableOpacity,
-  View,
+  StyleSheet,
+  ActivityIndicator,
+  Modal as RNModal
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { User } from '@supabase/supabase-js';
 import supabase from 'src/config/supabaseClient';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
 // ---------------------------------------------------------------------------
-// ProfileRow
+// TypeScript Interfaces
 // ---------------------------------------------------------------------------
+interface User {
+  id: string;
+  email?: string;
+  user_metadata?: {
+    full_name?: string;
+  };
+}
 
-function ProfileRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
+interface ModalProps {
+  visible: boolean;
+  title?: string;
+  message?: string;
+  onCancel?: () => void;
+  onConfirm?: () => void;
+  cancelText?: string;
+  confirmText?: string;
+  isDestructive?: boolean;
+}
+
+interface ProfileRowProps {
+  // Strongly typing the icon name to match Feather icons
+  iconName: keyof typeof Feather.glyphMap;
   label: string;
   value: string;
-}) {
+}
+
+// ---------------------------------------------------------------------------
+// Custom Modal Component
+// ---------------------------------------------------------------------------
+function Modal({
+                 visible,
+                 title,
+                 message,
+                 onCancel,
+                 onConfirm,
+                 cancelText = 'Cancel',
+                 confirmText = 'Confirm',
+                 isDestructive = false
+               }: ModalProps) {
   return (
-    <View style={styles.row}>
-      <View style={styles.rowIcon}>
-        <Ionicons name={icon} size={18} color="#4A90D9" />
-      </View>
-      <View style={styles.rowContent}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowValue}>{value}</Text>
-      </View>
-    </View>
+      <RNModal visible={visible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            <Text style={styles.modalMessage}>{message}</Text>
+            <View style={styles.modalActions}>
+              {onCancel && (
+                  <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+                    <Text style={styles.cancelButtonText}>{cancelText}</Text>
+                  </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                  style={[
+                    styles.confirmButton,
+                    isDestructive ? styles.destructiveButton : styles.primaryButton
+                  ]}
+                  onPress={onConfirm}
+              >
+                <Text style={styles.confirmButtonText}>{confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </RNModal>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ProfileScreen
+// ProfileRow Component
 // ---------------------------------------------------------------------------
+function ProfileRow({ iconName, label, value }: ProfileRowProps) {
+  return (
+      <View style={styles.profileRow}>
+        <View style={styles.iconContainer}>
+          <Feather name={iconName} size={20} color="#3b82f6" />
+        </View>
+        <View style={styles.profileRowText}>
+          <Text style={styles.profileRowLabel}>{label}</Text>
+          <Text style={styles.profileRowValue} numberOfLines={1}>{value}</Text>
+        </View>
+      </View>
+  );
+}
 
-export default function ProfileScreen() {
+// ---------------------------------------------------------------------------
+// Main App Component
+// ---------------------------------------------------------------------------
+export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [globalScore, setGlobalScore] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
-  const [signingOut, setSigningOut] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [signingOut, setSigningOut] = useState<boolean>(false);
+
+  const [modalConfig, setModalConfig] = useState<ModalProps>({ visible: false });
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
 
-    const { data: { user: u } } = await supabase.auth.getUser();
-    if (!u) { setLoading(false); return; }
-    setUser(u);
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('global_score')
-      .eq('id', u.id)
-      .single();
+      // The Hacker Check: Force a crash if there is no user
+      if (authError || !user) {
+        throw new Error("FATAL: Unauthorized access. No valid user session found.");
+      }
 
-    if (profile) {
-      setGlobalScore((profile as { global_score: number }).global_score ?? 0);
+      setUser(user);
+
+      // 3. Fetch global_score based on your database schema
+      const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('global_score') // Fix: Changed from 'score' to 'global_score'
+          .eq('id', user.id)
+          .single();
+
+      if (profileError) {
+        console.error("Error fetching user profile score:", profileError);
+      }
+
+      // Set score if data exists
+      if (profileData && profileData.global_score !== undefined) {
+        setGlobalScore(profileData.global_score); // Fix: Updated to global_score
+      }
+
+    } catch (err) {
+      console.error(err);
+      throw err;
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, []);
+
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
   const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            setSigningOut(true);
-            const { error } = await supabase.auth.signOut();
-            if (error) {
-              console.error('Sign out error:', error.message);
-              setSigningOut(false);
-            }
-            // Auth state change in _layout.tsx automatically switches to login
-          },
-        },
-      ],
-    );
+    setModalConfig({
+      visible: true,
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out?',
+      isDestructive: true,
+      confirmText: 'Sign Out',
+      onCancel: () => setModalConfig({ visible: false }),
+      onConfirm: () => {
+        setModalConfig({ visible: false });
+        setSigningOut(true);
+        setTimeout(() => {
+          setSigningOut(false);
+          setUser(null);
+        }, 1000);
+      }
+    });
   };
 
-  const getUserDisplayName = (u: User): string => {
-    const name = u.user_metadata?.full_name as string | undefined;
+  const handleBattle = () => {
+    setModalConfig({
+      visible: true,
+      title: 'Battle Initiated!',
+      message: 'You have challenged TestProfile1 to a multiplayer battle. Prepare yourself!',
+      confirmText: 'Ready',
+      onCancel: () => setModalConfig({ visible: false }),
+      onConfirm: () => {
+        setModalConfig({ visible: false });
+        router.push({ pathname: '/(tabs)', params: { battle: 'true' } });
+      }
+    });
+  };
+
+  const getUserDisplayName = (u: User | null): string => {
+    if (!u) return '';
+    const name = u.user_metadata?.full_name;
     if (name) return name;
-    return u.email?.split('@')[0] ?? 'User';
+    return u.email?.split('@')[0] || 'User';
   };
 
-  const getUserInitials = (u: User): string => {
+  const getUserInitials = (u: User | null): string => {
+    if (!u) return '?';
     const name = getUserDisplayName(u);
     const parts = name.split(' ');
     if (parts.length >= 2) {
@@ -112,274 +203,330 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#4A90D9" />
-      </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" style={styles.spinner} />
+          <Text style={styles.loadingText}>Loading Profile...</Text>
+        </View>
     );
   }
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.screenTitle}>Profile</Text>
+      <View style={styles.container}>
+        <View style={styles.content}>
 
-      {/* Avatar + name */}
-      <View style={styles.avatarSection}>
-        <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>
-            {user ? getUserInitials(user) : '?'}
-          </Text>
-        </View>
-        <Text style={styles.displayName}>
-          {user ? getUserDisplayName(user) : ''}
-        </Text>
-        <View style={styles.scorePill}>
-          <Text style={styles.scorePillEmoji}>⭐</Text>
-          <Text style={styles.scorePillText}>{globalScore} pts</Text>
-        </View>
-      </View>
+          <Text style={styles.headerTitle}>Profile</Text>
 
-      {/* Info card */}
-      <View style={styles.infoCard}>
-        <Text style={styles.cardTitle}>Account</Text>
-
-        <ProfileRow
-          icon="mail-outline"
-          label="Email"
-          value={user?.email ?? '—'}
-        />
-
-        <View style={styles.divider} />
-
-        <ProfileRow
-          icon="person-outline"
-          label="Username"
-          value={user ? getUserDisplayName(user) : '—'}
-        />
-
-        <View style={styles.divider} />
-
-        <ProfileRow
-          icon="id-card-outline"
-          label="User ID"
-          value={user?.id.slice(0, 8).toUpperCase() ?? '—'}
-        />
-      </View>
-
-      {/* Score card */}
-      <View style={[styles.infoCard, styles.scoreCard]}>
-        <Text style={styles.cardTitle}>Performance</Text>
-        <View style={styles.scoreRow}>
-          <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemValue}>{globalScore}</Text>
-            <Text style={styles.scoreItemLabel}>Global Score</Text>
+          {/* Avatar + name */}
+          <View style={styles.avatarSection}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarText}>{getUserInitials(user)}</Text>
+            </View>
+            <Text style={styles.userName}>{getUserDisplayName(user) || 'Guest User'}</Text>
+            <View style={styles.scoreBadge}>
+              <Text style={styles.scoreText}>⭐ {globalScore} pts</Text>
+            </View>
           </View>
-          <View style={styles.scoreItemDivider} />
-          <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemValue}>🌅</Text>
-            <Text style={styles.scoreItemLabel}>RisyShiny</Text>
+
+          {/* Info card */}
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>Account</Text>
+            <ProfileRow iconName="mail" label="Email" value={user?.email || '—'} />
+            <View style={styles.divider} />
+            <ProfileRow iconName="user" label="Username" value={getUserDisplayName(user) || '—'} />
+            <View style={styles.divider} />
+            <ProfileRow iconName="hash" label="User ID" value={user?.id.slice(0, 8).toUpperCase() || '—'} />
           </View>
+
+          {/* Multiplayer battles */}
+          <View style={styles.card}>
+            <Text style={styles.cardHeader}>Multiplayer Battles</Text>
+            <View style={styles.battleRow}>
+              <View style={styles.battleUser}>
+                <View style={styles.battleIconContainer}>
+                  <Feather name="crosshair" size={20} color="#4f46e5" />
+                </View>
+                <Text style={styles.battleUserName}>TestProfile1</Text>
+              </View>
+              <TouchableOpacity style={styles.battleButton} onPress={handleBattle}>
+                <Text style={styles.battleButtonText}>Battle</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Sign out */}
+          <TouchableOpacity
+              style={[styles.signOutButton, signingOut && styles.signOutDisabled]}
+              onPress={handleSignOut}
+              disabled={signingOut}
+          >
+            {signingOut ? (
+                <ActivityIndicator size="small" color="#ef4444" />
+            ) : (
+                <>
+                  <Feather name="log-out" size={20} color="#ef4444" />
+                  <Text style={styles.signOutText}>Sign Out</Text>
+                </>
+            )}
+          </TouchableOpacity>
+
         </View>
+
+        {/* Reusable Modal */}
+        <Modal {...modalConfig} />
       </View>
-
-      {/* Sign out */}
-      <TouchableOpacity
-        style={[styles.signOutBtn, signingOut && styles.signOutBtnDisabled]}
-        onPress={handleSignOut}
-        disabled={signingOut}
-        activeOpacity={0.8}
-      >
-        {signingOut ? (
-          <ActivityIndicator color="#D32F2F" />
-        ) : (
-          <>
-            <Ionicons name="log-out-outline" size={18} color="#D32F2F" />
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </>
-        )}
-      </TouchableOpacity>
-
-      <View style={{ height: 32 }} />
-    </ScrollView>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
-  loadingWrap: {
+  container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scroll: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#f9fafb',
+    paddingTop: 50, // Added padding to compensate for standard View instead of SafeAreaView
   },
   content: {
-    padding: 20,
+    padding: 24,
+    maxWidth: 500,
+    width: '100%',
+    alignSelf: 'center',
   },
-  screenTitle: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 24,
-    marginTop: 8,
-  },
-
-  // Avatar section
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  avatarCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#4A90D9',
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-    shadowColor: '#4A90D9',
+  },
+  spinner: {
+    marginBottom: 16,
+  },
+  loadingText: {
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  headerTitle: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 32,
+    marginTop: 16,
+  },
+  avatarSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  avatarCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 4,
+    borderColor: '#ffffff',
+    shadowColor: '#2563eb',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   avatarText: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '700',
+    color: '#ffffff',
+    fontSize: 32,
+    fontWeight: 'bold',
+    letterSpacing: 2,
   },
-  displayName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A1A',
+  userName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111827',
     marginBottom: 8,
   },
-  scorePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFF8E1',
-    paddingHorizontal: 14,
+  scoreBadge: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 16,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: '#fde68a',
   },
-  scorePillEmoji: {
+  scoreText: {
+    color: '#b45309',
+    fontWeight: '600',
     fontSize: 14,
   },
-  scorePillText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#F9A825',
-  },
-
-  // Info card
-  infoCard: {
-    backgroundColor: '#FFFFFF',
+  card: {
+    backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    padding: 20,
+    marginBottom: 20,
+    borderColor: '#f3f4f6',
+    borderWidth: 1,
   },
-  scoreCard: {
-    backgroundColor: '#F0F7FF',
-  },
-  cardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#888888',
+  cardHeader: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#9ca3af',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
   },
-  row: {
+  profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
-  rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#EBF4FF',
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#eff6ff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
-  rowContent: {
+  profileRowText: {
     flex: 1,
   },
-  rowLabel: {
-    fontSize: 11,
-    color: '#888888',
-    fontWeight: '600',
+  profileRowLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '700',
+    textTransform: 'uppercase',
     marginBottom: 2,
   },
-  rowValue: {
+  profileRowValue: {
     fontSize: 15,
-    color: '#1A1A1A',
-    fontWeight: '400',
+    color: '#111827',
+    fontWeight: '500',
   },
   divider: {
     height: 1,
-    backgroundColor: '#EEEEEE',
-    marginLeft: 48,
+    backgroundColor: '#f3f4f6',
+    marginLeft: 56,
   },
-
-  // Score row
-  scoreRow: {
+  battleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f9fafb',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  battleUser: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  scoreItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  scoreItemValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 4,
-  },
-  scoreItemLabel: {
-    fontSize: 12,
-    color: '#888888',
-    fontWeight: '600',
-  },
-  scoreItemDivider: {
-    width: 1,
+  battleIconContainer: {
+    width: 40,
     height: 40,
-    backgroundColor: '#EEEEEE',
+    borderRadius: 12,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#e0e7ff',
   },
-
-  // Sign out
-  signOutBtn: {
+  battleUserName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  battleButton: {
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  battleButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  signOutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
     paddingVertical: 16,
-    borderWidth: 1.5,
-    borderColor: '#FFCDD2',
-    marginTop: 8,
+    borderWidth: 2,
+    borderColor: '#fee2e2',
+    gap: 8,
   },
-  signOutBtnDisabled: {
+  signOutDisabled: {
     opacity: 0.6,
   },
   signOutText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#D32F2F',
+    fontWeight: 'bold',
+    color: '#dc2626',
+    marginLeft: 8,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  modalMessage: {
+    color: '#4b5563',
+    marginBottom: 24,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  cancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+  },
+  cancelButtonText: {
+    fontWeight: '600',
+    color: '#374151',
+  },
+  confirmButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#3b82f6',
+  },
+  destructiveButton: {
+    backgroundColor: '#ef4444',
+  },
+  confirmButtonText: {
+    fontWeight: '600',
+    color: '#ffffff',
+  }
 });
