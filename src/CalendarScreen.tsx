@@ -19,7 +19,7 @@ interface TowerState {
 interface EnemyState {
     id: number;
     x: number; // column index (0 to 13)
-    y: number; // row index (hour 0 to 23)
+    y: number; // row index (mapped to displayHours)
     hp: number;
     type: 'normal' | 'tornado' | 'speedster';
     emoji: string;
@@ -28,12 +28,12 @@ interface EnemyState {
     accum: number;
 }
 
-// Utility to generate YYYY-MM-DD string for our active date keys
+// Utility to generate a YYYY-MM-DD string for our active date keys
 const getLocalDateString = (d: Date) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// Utility to display dates nicely in the column headers
+// Utility to display the dates nicely in the column headers
 const formatDateShort = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-').map(Number);
     const d = new Date(year, month - 1, day);
@@ -49,10 +49,8 @@ const SHOP_ITEMS = [
 ] as const;
 
 export default function CalendarScreen() {
-    const hoursOfDay = Array.from({ length: 24 }, (_, i) => i);
-
-    // Battle Mode State & Route params
-    const params = useGlobalSearchParams<{ battle?: string }>(); // FIX: Now catches params across tab layouts
+    // The Battle Mode State & Route params
+    const params = useGlobalSearchParams<{ battle?: string }>();
     const [isBattleMode, setIsBattleMode] = React.useState(params?.battle === 'true');
 
     React.useEffect(() => {
@@ -70,7 +68,48 @@ export default function CalendarScreen() {
 
     const [userBedtime, setUserBedtime] = React.useState<number>(0); // Default to midnight (0)
 
-    // Calculates what 'today' is, keeping it on yesterday until the bedtime passes
+    // The Opponent Sleep Settings
+    const opponentBedtime = 22; // 10 PM
+    const isOppAwake = React.useCallback((h: number) => {
+        // Calculate the 15-hour active window for the opponent
+        const oppStartHour = (opponentBedtime - 14 + 24) % 24;
+        if (oppStartHour <= opponentBedtime) {
+            return h >= oppStartHour && h <= opponentBedtime;
+        } else {
+            return h >= oppStartHour || h <= opponentBedtime;
+        }
+    }, [opponentBedtime]);
+
+    // Calculates exactly 15 hours ending at the user's bedtime
+    const userDisplayHours = React.useMemo(() => {
+        const hours = [];
+        for (let i = 14; i >= 0; i--) {
+            hours.push((userBedtime - i + 24) % 24);
+        }
+        return hours;
+    }, [userBedtime]);
+
+    // Calculates the combined timeline of both players depending on who is awake
+    const displayHours = React.useMemo(() => {
+        const uHours = userDisplayHours;
+        if (!isBattleMode) return uHours;
+
+        const oHours: number[] = [];
+        for (let i = 14; i >= 0; i--) {
+            oHours.push((opponentBedtime - i + 24) % 24);
+        }
+
+        // Establish a logical chronological timeline starting from 4 AM
+        const daySequence = [];
+        for (let i = 4; i < 28; i++) {
+            daySequence.push(i % 24);
+        }
+
+        // Filter the timeline to only the hours in which AT LEAST ONE player is awake
+        return daySequence.filter(h => uHours.includes(h) || oHours.includes(h));
+    }, [userDisplayHours, isBattleMode, opponentBedtime]);
+
+    // Calculates what "Today" is, keeping it on yesterday until the bedtime passes
     const getLogicalToday = React.useCallback(() => {
         const d = new Date();
         if (d.getHours() < userBedtime) {
@@ -81,7 +120,7 @@ export default function CalendarScreen() {
 
     const [currentLogicalDate, setCurrentLogicalDate] = React.useState<string>(getLocalDateString(getLogicalToday()));
 
-    // Generate an array of 14 days starting from the logical 'today'
+    // Generate an array of 14 days starting from the logical "Today"
     const fourteenDays = React.useMemo(() => {
         const days = [];
         const logicalToday = getLogicalToday();
@@ -90,35 +129,73 @@ export default function CalendarScreen() {
             days.push(getLocalDateString(d));
         }
         return days;
-    }, [getLogicalToday, currentLogicalDate]);
+    }, [getLogicalToday]);
 
     const [viewMode, setViewMode] = React.useState<'1D' | '2D'>('1D'); // Toggle between list and grid
     const [activeDate, setActiveDate] = React.useState<string>(getLocalDateString(new Date())); // The specific day viewed in 1D mode
-    const [editingKey, setEditingKey] = React.useState<string | null>(null); // Track which hour rectangle is being typed into (format: YYYY-MM-DD_H)
-    const [routines, setRoutines] = React.useState<Record<string, string>>({}); // Store the text of each rectangle
-    const [eventIds, setEventIds] = React.useState<Record<string, string>>({}); // Track event IDs for performance and SunnyStreak team convenience
-    const [AIData, setAIData] = React.useState<Record<string, AIDataState>>({}); // Stores the scores and reasoning for each hour, keyed by the 24-hour index and date
-    const [debateKey, setDebateKey] = React.useState<string | null>(null); // Stores the specific event currently being appealed; null means the modal is closed
-    const [debateText, setDebateText] = React.useState(''); // Holds the user's written argument for the High Court while they are typing in the modal
-    const [isDebating, setIsDebating] = React.useState(false); // Tracks the loading state of the thinking model API call to show a spinner and disable buttons
-    const [debatedKeys, setDebatedKeys] = React.useState<string[]>([]); // Tracks which events have already been appealed to prevent infinite arguing
-    const [globalPoints, setGlobalPoints] = React.useState<number>(0); // Tracks the number of points earned in total
 
-    // Tactical Ops Game State
+    const [editingKey, setEditingKey] = React.useState<string | null>(null); // Track the hour rectangle being typed into (format: YYYY-MM-DD_H)
+    const [routines, setRoutines] = React.useState<Record<string, string>>({}); // Store the text of each rectangle
+    const [eventIds, setEventIds] = React.useState<Record<string, string>>({}); // Track the event IDs for performance and the SunnyStreak team's convenience
+    const [AIData, setAIData] = React.useState<Record<string, AIDataState>>({}); // Stores the scores and reasoning for each hour, keyed by the 24-hour index and the date
+    const [debateKey, setDebateKey] = React.useState<string | null>(null); // Stores the specific event currently being appealed; null means that the modal is closed
+    const [debateText, setDebateText] = React.useState(''); // Holds the user's written argument for the High Court while they are typing in the modal
+    const [isDebating, setIsDebating] = React.useState(false); // Tracks the loading state of the thinking model API call to show a spinner and disable the buttons
+    const [debatedKeys, setDebatedKeys] = React.useState<string[]>([]); // Tracks which events have already been appealed to prevent infinite arguing
+    const [globalPoints, setGlobalPoints] = React.useState<number>(0); // Tracks the total number of points earned
+
+    // The Tactical Ops Game State
     const [towers, setTowers] = React.useState<Record<string, TowerState>>({});
     const [enemies, setEnemies] = React.useState<EnemyState[]>([]);
     const [selectedShopItem, setSelectedShopItem] = React.useState<typeof SHOP_ITEMS[number] | null>(null);
     const [activeTowerKey, setActiveTowerKey] = React.useState<string | null>(null);
     const [gameOver, setGameOver] = React.useState(false);
     const enemyIdCounter = React.useRef(0);
+    const lastTapRef = React.useRef<{key: string, time: number} | null>(null);
+
+    // The Wall Mechanics State
+    const [walls, setWalls] = React.useState<string[]>([]);
+    const [spawnedWallDates, setSpawnedWallDates] = React.useState<string[]>([]);
+
+    // Dynamically calculate the Y pixel offset based on the interleaved row heights
+    const getRowTopPos = React.useCallback((rowIndex: number) => {
+        let top = 0;
+        for (let i = 0; i < rowIndex; i++) {
+            const h = displayHours[i];
+            const showUser = userDisplayHours.includes(h);
+            const showOpp = isBattleMode && isOppAwake(h);
+            top += (showUser && showOpp) ? 91 : 46;
+        }
+        return top;
+    }, [displayHours, userDisplayHours, isBattleMode, isOppAwake]);
+
+    // Stable mock generation for the opponent's routines based on the time key
+    const getMockOpponentTask = React.useCallback((key: string, hour: number) => {
+        if (!isOppAwake(hour)) return null;
+
+        let hash = 0;
+        for (let i = 0; i < key.length; i++) {
+            hash = key.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const isTask = (Math.abs(hash) % 10) > 2; // Increased frequency for demonstration purposes
+        if (isTask) {
+            const score = (Math.abs(hash) % 5) + 1;
+            const isTagged = (Math.abs(hash) % 2) === 0; // 50% chance that they tag you back to form a synergy
+            const taskNames = ["Cardio Training", "Study Tactical Maps", "Weapon Maintenance", "Meditation", "Review Logs"];
+            const baseName = taskNames[Math.abs(hash) % taskNames.length];
+            const taskName = isTagged ? `${baseName} @PlayerOne` : baseName;
+            return { text: taskName, score, isTagged };
+        }
+        return null;
+    }, [isOppAwake]);
 
     const loadFromDBEvents = async (user_id: string) => {
-        // Get the start and end in ISO format (UTC) for 14 days
+        // Get the start and the end in ISO format (UTC) for 14 days
         const today = new Date();
-        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2).toISOString(); // Buffer for bedtime
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30).toISOString(); // Fetch extra for offset buffering
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2).toISOString(); // Buffer for the bedtime
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30).toISOString(); // Fetch extra for the offset buffering
 
-        // Ask Supabase for events belonging to this user that fall within the next 14 days
+        // Ask Supabase for the events belonging to this user that fall within the next 14 days
         const { data, error } = await supabase
             .from('events')
             .select('*')
@@ -133,7 +210,7 @@ export default function CalendarScreen() {
 
         console.log("Events fetched:", JSON.stringify(data, null, 2));
 
-        // If events found, put them into React states, so they display on screen
+        // If events are found, put them into the React states so they display on the screen
         if (data) {
             const fetchedRoutines: Record<string, string> = {};
             const fetchedIds: Record<string, string> = {};
@@ -146,7 +223,7 @@ export default function CalendarScreen() {
                 const key = `${dateStr}_${hour}`;
 
                 fetchedRoutines[key] = event.title;
-                fetchedIds[key] = event.id; // Store the DB id, so it can be updated when a user changes the event.
+                fetchedIds[key] = event.id; // Store the DB id so it can be updated when a user changes the event.
                 fetchedAIData[key] = {
                     score: event.score,
                     reasoning: event.description,
@@ -160,15 +237,15 @@ export default function CalendarScreen() {
         }
     };
 
-    // Fetch email, points, and bedtime from the users table in the database
+    // Fetch the email, points, and bedtime from the users table in the database
     React.useEffect(() => {
         const init = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                // Fetch events using the email
+                // Fetch the events using the email
                 await loadFromDBEvents(user.id);
 
-                const { data, error, status } = await supabase
+                const { data, error } = await supabase
                     .from('profiles')
                     .select('global_score, bedtime')
                     .eq('id', user.id)
@@ -188,7 +265,7 @@ export default function CalendarScreen() {
         init().catch(console.error);
     }, []);
 
-    // Update logical date if bedtime settings change
+    // Update the logical date if the bedtime settings change
     React.useEffect(() => {
         setCurrentLogicalDate(getLocalDateString(getLogicalToday()));
     }, [getLogicalToday]);
@@ -199,7 +276,7 @@ export default function CalendarScreen() {
         const text = routines[key]?.trim();
         const existingId = eventIds[key];
 
-        // Clear previous AI data if the user edits the task
+        // Clear the previous AI data if the user edits the task
         setAIData(prev => {
             const next = { ...prev };
             delete next[key];
@@ -209,7 +286,7 @@ export default function CalendarScreen() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Extract year, month, day from the selected activeDate so it saves correctly
+        // Extract the year, month, and day from the selected activeDate so it saves correctly
         const [year, month, day] = activeDate.split('-').map(Number);
 
         const start = new Date(year, month - 1, day, hour, 0, 0, 0);
@@ -228,7 +305,7 @@ export default function CalendarScreen() {
                         .eq('id', existingId);
                     if (error) {
                         console.error("Update failed:", error.message);
-                        return; // Stop execution if the DB didn't accept the change
+                        return; // Stop execution if the DB did not accept the change
                     }
                     console.log("Event updated successfully.");
                 } else {
@@ -255,7 +332,7 @@ export default function CalendarScreen() {
                     }
                 }
 
-                // Notify user later to start task
+                // Notify the user later to start the task
                 try {
                     await notificationService.scheduleNotify({
                         title: `Start task for hour: ${start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
@@ -267,7 +344,7 @@ export default function CalendarScreen() {
                     console.error("Failed to schedule \"start task\" notification:", notifyError);
                 }
 
-                // Notify user later to claim the task's points
+                // Notify the user later to claim the task's points
                 try {
                     await notificationService.scheduleNotify({
                         title: `Claim task points for hour: ${end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
@@ -279,15 +356,15 @@ export default function CalendarScreen() {
                     console.error("Failed to schedule \"claim points\" notification:", notifyError);
                 }
 
-                // Fetch the AI data on save, and put it in Supabase
+                // Fetch the AI data on save and put it in Supabase
                 getTaskDifficulty(text).then(async result => {
-                    // Update UI
+                    // Update the UI
                     setAIData(prev => ({...prev, [key]: {
                             score: result.score,
                             reasoning: result.reasoning,
                         }}));
 
-                    // Update database
+                    // Update the database
                     if (currentEventId) {
                         const { error } = await supabase
                             .from('events')
@@ -305,7 +382,7 @@ export default function CalendarScreen() {
                     }
                 });
             } else if (!text && existingId) {
-                // Delete event from the calendar
+                // Delete the event from the calendar
                 const { error } = await supabase
                     .from('events')
                     .delete()
@@ -318,6 +395,37 @@ export default function CalendarScreen() {
 
                 setEventIds(prev => { const n = {...prev}; delete n[key]; return n; });
             }
+
+            // WALL LOGIC: Check if the column is completely filled after a save (only checks the visible hours)
+            const colIdx = fourteenDays.indexOf(activeDate);
+            if (colIdx !== -1 && !spawnedWallDates.includes(activeDate)) {
+                let full = true;
+                for (const h of displayHours) {
+                    const k = `${activeDate}_${h}`;
+                    const showUser = userDisplayHours.includes(h);
+                    const showOpp = isBattleMode && isOppAwake(h);
+
+                    const hasUser = showUser ? !!routines[k] : true; // Auto-pass if the user is asleep
+                    const hasOppTask = showOpp ? !!getMockOpponentTask(k, h) : true; // Auto-pass if the opponent is asleep
+
+                    const cellFull = (showUser && showOpp) ? (hasUser || hasOppTask) : (showUser ? hasUser : hasOppTask);
+
+                    if (!cellFull) {
+                        full = false;
+                        break;
+                    }
+                }
+                if (full) {
+                    const newWallTiles: string[] = [];
+                    for (const h of displayHours) {
+                        newWallTiles.push(`${colIdx}_${h}`);
+                    }
+                    setWalls(prev => [...prev, ...newWallTiles]);
+                    setSpawnedWallDates(prev => [...prev, activeDate]);
+                    Alert.alert("Wall Formed!", "A defensive wall has spawned in this timeline!");
+                }
+            }
+
         } catch (e) {
             console.error("Save failed:", e);
         }
@@ -330,12 +438,32 @@ export default function CalendarScreen() {
         const existingId = eventIds[key];
         const newMenuState = !currentData.has_menu_open;
 
-        // Update calendar immediately
-        if (currentData.score !== undefined) {
-            setAIData(prev => ({...prev, [key]: {
-                    ...currentData, has_menu_open: newMenuState }
-            }));
+        if (newMenuState) {
+            Object.keys(AIData).forEach(k => {
+                if (k !== key && AIData[k].has_menu_open) {
+                    const otherId = eventIds[k];
+                    if (otherId) {
+                        supabase.from('events').update({ has_menu_open: false }).eq('id', otherId).then(({ error }) => {
+                            if (error) console.error("Failed to close other menu in DB:", error);
+                        });
+                    }
+                }
+            });
         }
+
+        // Update the calendar immediately
+        setAIData(prev => {
+            const next = { ...prev };
+            if (newMenuState) {
+                for (const k in next) {
+                    if (next[k].has_menu_open) {
+                        next[k] = { ...next[k], has_menu_open: false };
+                    }
+                }
+            }
+            next[key] = { ...currentData, has_menu_open: newMenuState };
+            return next;
+        });
 
         // Save the updated calendar event to Supabase
         if (existingId) {
@@ -366,71 +494,155 @@ export default function CalendarScreen() {
         }]);
     };
 
-    // Advance enemy positions when a task is completed
-    const tickEnemies = React.useCallback(() => {
-        setActiveTowerKey(null); // Clear shooter focus on move
+    // Advance the enemy positions and the moving walls independently
+    const tickEnemies = React.useCallback((isFromTaskComplete: boolean = false) => {
+        setActiveTowerKey(null); // Clear the shooter focus on a move
         let breach = false;
-        setEnemies(prevEnemies => {
-            const nextEnemies = prevEnemies.map(e => ({ ...e }));
 
-            nextEnemies.forEach(e => {
-                if (e.freeze > 0) { e.freeze--; return; }
-
-                if (e.fire > 0) {
-                    e.fire--;
-                    const dirs = [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: 0, dy: 1 }];
-                    const d = dirs[Math.floor(Math.random() * dirs.length)];
-                    e.x += d.dx; e.y += d.dy;
-                    if (e.x < 0) breach = true;
-                    return;
-                }
-
-                // Enemy AI variants
-                if (e.type === 'tornado') {
-                    e.x -= 1;
-                } else if (e.type === 'speedster') {
-                    e.accum += 1.5;
-                    while (e.accum >= 1) {
-                        e.x -= 1;
-                        e.accum -= 1;
-                        if (e.x < 0) { breach = true; break; }
-                    }
-                } else {
-                    e.x -= 1;
-                }
-
-                if (e.x < 0) breach = true;
+        // Use functional updates to safely cascade walls into enemies
+        setWalls(prevWalls => {
+            // Move the wall tiles forward 1 column
+            let nextWalls = prevWalls.map(w => {
+                const parts = w.split('_');
+                const x = parseInt(parts[0], 10);
+                const y = parseInt(parts[1], 10);
+                return `${x + 1}_${y}`;
+            }).filter(w => {
+                const x = parseInt(w.split('_')[0], 10);
+                return x <= 13;
             });
 
-            if (breach) setGameOver(true);
-            return nextEnemies.filter(e => e.x >= 0);
+            setEnemies(prevEnemies => {
+                const nextEnemies = prevEnemies.map(e => ({ ...e }));
+
+                nextEnemies.forEach(e => {
+                    // Map the enemy's visual 'y' position to the actual grid hour key coordinate
+                    const enemyHourStr = displayHours[e.y] !== undefined ? displayHours[e.y] : 0;
+                    const currentPosStr = `${e.x}_${enemyHourStr}`;
+
+                    // If a wall advances into an enemy
+                    if (nextWalls.includes(currentPosStr)) {
+                        if (e.type === 'tornado') {
+                            // Tornado destroys the wall tile that just hit it
+                            nextWalls = nextWalls.filter(w => w !== currentPosStr);
+                        } else {
+                            // Push the normal/speedster forward (right)
+                            e.x += 1;
+                        }
+                    }
+
+                    // Check-in hesitation feature: If checking in a task, the enemies at the last line of defense stay put
+                    if (isFromTaskComplete && e.x === 0) return;
+
+                    if (e.freeze > 0) { e.freeze--; return; }
+
+                    if (e.fire > 0) {
+                        e.fire--;
+                        const dirs = [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: 0, dy: 1 }];
+                        const d = dirs[Math.floor(Math.random() * dirs.length)];
+                        const nextX = e.x + d.dx;
+                        const nextY = e.y + d.dy;
+
+                        // Prevent random fire movement from passing walls or leaving the grid
+                        if (nextY >= 0 && nextY < displayHours.length && nextX <= 13) {
+                            const nextHourStr = displayHours[nextY];
+                            const targetPos = `${nextX}_${nextHourStr}`;
+
+                            if (nextWalls.includes(targetPos)) {
+                                if (e.type === 'tornado') {
+                                    nextWalls = nextWalls.filter(w => w !== targetPos);
+                                    e.x = nextX;
+                                    e.y = nextY;
+                                }
+                            } else {
+                                e.x = nextX;
+                                e.y = nextY;
+                            }
+                        }
+                        if (e.x < 0) breach = true;
+                        return;
+                    }
+
+                    // Enemy AI variants
+                    let speed = 1;
+                    if (e.type === 'speedster') {
+                        e.accum += 1.5;
+                        speed = Math.floor(e.accum);
+                        e.accum -= speed;
+                    }
+
+                    // Move step by step to check for a wall collision
+                    for (let s = 0; s < speed; s++) {
+                        const targetWall = `${e.x - 1}_${enemyHourStr}`;
+                        if (nextWalls.includes(targetWall)) {
+                            if (e.type === 'tornado') {
+                                // Tornado destroys the tile and moves into its space
+                                nextWalls = nextWalls.filter(w => w !== targetWall);
+                                e.x -= 1;
+                                if (e.x < 0) { breach = true; break; }
+                            } else {
+                                // Hit a wall, stop moving this turn
+                                break;
+                            }
+                        } else {
+                            e.x -= 1;
+                            if (e.x < 0) { breach = true; break; }
+                        }
+                    }
+                });
+
+                if (breach) setGameOver(true);
+                return nextEnemies.filter(e => e.x >= 0 && e.x <= 13);
+            });
+
+            return nextWalls;
         });
-    }, []);
+    }, [displayHours]);
 
     // On task finish, reset the event to its default state
     const handleCompleteTask = async (hour: number) => {
         const key = `${activeDate}_${hour}`;
         const existingId = eventIds[key];
 
-        const pointsEarned = AIData[key]?.score || 0;
-        console.log(`Current global: ${globalPoints} | Earned from event: ${pointsEarned}`);
+        // Tagging logic for the success synergy
+        const isTagged = routines[key]?.includes('@');
+        const oppTask = (isBattleMode && isOppAwake(hour)) ? getMockOpponentTask(key, hour) : null;
 
+        let pointsEarned = AIData[key]?.score || 0;
+        let isSynergy = false;
+
+        // If both players tagged each other and successfully completed their tasks
+        if (isTagged && oppTask?.isTagged) {
+            pointsEarned += oppTask.score;
+            isSynergy = true;
+        }
+
+        console.log(`Current global: ${globalPoints} | Earned from event: ${pointsEarned}`);
         const newTotalPoints = globalPoints + pointsEarned;
         console.log(`New total points: ${newTotalPoints}`);
 
-        // Update UI immediately
+        // Update the UI immediately
         setGlobalPoints(newTotalPoints);
         setRoutines(prev => { const n = {...prev}; delete n[key]; return n; });
         setAIData(prev => { const n = {...prev}; delete n[key]; return n; });
         setEventIds(prev => { const n = {...prev}; delete n[key]; return n; });
 
-        // Trigger turn: Enemies move when a task is checked in
-        tickEnemies();
+        if (isSynergy) {
+            Alert.alert("Synergy Activated!", `You and your tagged partner both succeeded! Earned ${pointsEarned} points total.`);
+        }
+
+        // Trigger a turn: The enemies move when a task is checked in (flagged true for the hesitation mechanic)
+        tickEnemies(true);
 
         if (existingId) {
             try {
-                // Call the DB function to handle the global points math
-                // TODO: handle cheating if a user just calls DB to create an event with a very large point value
+                if (isSynergy) {
+                    // Update the database to have the combined score so the RPC function reads the right value
+                    await supabase.from('events').update({ score: pointsEarned }).eq('id', existingId);
+                }
+
+                // Call the database function to handle the global points math
+                // TODO: Handle cheating if a user just calls the database to create an event with a very large point value
                 const { error: error } = await supabase.rpc('score_task', {
                     target_event_id: existingId
                 });
@@ -466,7 +678,7 @@ export default function CalendarScreen() {
         const taskText = routines[debateKey];
         const eventId = eventIds[debateKey];
 
-        // Call thinking model
+        // Call the thinking model
         const result = await getRejudgedTaskDifficulty(taskText, debateText);
 
         // Update the UI with the new score and the thinking model's response
@@ -500,30 +712,53 @@ export default function CalendarScreen() {
     };
 
     const handleAdvanceTime = React.useCallback((oldTodayStr: string) => {
-        // Find penalties for tasks left in yesterday (which is the oldTodayStr)
         const penalties: number[] = [];
+        let synergyFailures = 0;
 
-        hoursOfDay.forEach(h => {
+        displayHours.forEach(h => {
+            const showUser = userDisplayHours.includes(h);
+            const showOpp = isBattleMode && isOppAwake(h);
             const key = `${oldTodayStr}_${h}`;
-            if (routines[key] && !towers[key]) {
-                penalties.push(AIData[key]?.score || 5);
+
+            if (showUser && routines[key] && !towers[key]) {
+                const isTagged = routines[key].includes('@');
+                const oppTask = showOpp ? getMockOpponentTask(key, h) : null;
+
+                if (isTagged) {
+                    // Synergy rule: If one fails, nothing happens. If both fail, a massive penalty is applied.
+                    if (oppTask?.isTagged) {
+                        synergyFailures++;
+                    }
+                } else {
+                    // Standard untagged penalty
+                    penalties.push(AIData[key]?.score || 5);
+                }
             }
         });
 
-        // Tick Enemies via internal logic
-        tickEnemies();
+        // Tick the enemies via internal logic (flagged false as it is an automatic timeline advance)
+        tickEnemies(false);
 
-        // Spawn Base Enemy & Penalties at the rightmost edge
-        spawnEnemy(13, Math.floor(Math.random() * 24), 2);
-        penalties.forEach(hp => spawnEnemy(13, Math.floor(Math.random() * 24), hp));
-    }, [routines, towers, AIData, hoursOfDay, tickEnemies]);
+        // Spawn the Base Enemy & Penalties at the rightmost edge
+        spawnEnemy(13, Math.floor(Math.random() * displayHours.length), 2);
+        penalties.forEach(hp => spawnEnemy(13, Math.floor(Math.random() * displayHours.length), hp));
 
-    // Continuously check if bedtime has passed
+        // Spawn the Synergy Failure enemies (3 per failure)
+        for (let i = 0; i < synergyFailures; i++) {
+            const row = Math.floor(Math.random() * displayHours.length);
+            spawnEnemy(13, row, 2);
+            spawnEnemy(13, row, 2);
+            spawnEnemy(13, row, 2);
+        }
+
+    }, [routines, towers, AIData, displayHours, userDisplayHours, tickEnemies, isBattleMode, isOppAwake, getMockOpponentTask]);
+
+    // Continuously check if the bedtime has passed
     React.useEffect(() => {
         const interval = setInterval(() => {
             const newLogicalDateStr = getLocalDateString(getLogicalToday());
             if (newLogicalDateStr !== currentLogicalDate) {
-                // Time has crossed the bedtime and logical day has officially shifted!
+                // The time has crossed the bedtime and the logical day has officially shifted!
                 handleAdvanceTime(currentLogicalDate);
                 setCurrentLogicalDate(newLogicalDateStr);
             }
@@ -531,8 +766,55 @@ export default function CalendarScreen() {
         return () => clearInterval(interval);
     }, [currentLogicalDate, getLogicalToday, handleAdvanceTime]);
 
-    const handleGridCellPress = (dateStr: string, hour: number, colIndex: number) => {
+    const handleGridCellPress = (dateStr: string, hour: number) => {
         const key = `${dateStr}_${hour}`;
+        const now = Date.now();
+        const DOUBLE_PRESS_DELAY = 300;
+
+        const isDoublePress = lastTapRef.current && lastTapRef.current.key === key && (now - lastTapRef.current.time) < DOUBLE_PRESS_DELAY;
+
+        if (isDoublePress) {
+            lastTapRef.current = null;
+            setActiveTowerKey(null);
+            setActiveDate(dateStr);
+            setViewMode('1D');
+
+            const currentData = AIData[key] || {};
+            if (routines[key] && !currentData.has_menu_open) {
+                // Close others in DB
+                Object.keys(AIData).forEach(k => {
+                    if (k !== key && AIData[k].has_menu_open) {
+                        const otherId = eventIds[k];
+                        if (otherId) {
+                            supabase.from('events').update({ has_menu_open: false }).eq('id', otherId).then(({ error }) => {
+                                if (error) console.error(error);
+                            });
+                        }
+                    }
+                });
+
+                setAIData(prev => {
+                    const next = { ...prev };
+                    for (const k in next) {
+                        if (next[k].has_menu_open) {
+                            next[k] = { ...next[k], has_menu_open: false };
+                        }
+                    }
+                    next[key] = { ...currentData, has_menu_open: true };
+                    return next;
+                });
+
+                const existingId = eventIds[key];
+                if (existingId) {
+                    supabase.from('events').update({ has_menu_open: true }).eq('id', existingId).then(({ error }) => {
+                        if (error) console.error(error);
+                    });
+                }
+            }
+            return;
+        }
+
+        lastTapRef.current = { key, time: now };
 
         if (selectedShopItem) {
             const score = AIData[key]?.score;
@@ -552,10 +834,16 @@ export default function CalendarScreen() {
         } else if (towers[key]) {
             setActiveTowerKey(prev => prev === key ? null : key);
         } else {
+            // Tapping an event no longer switches to 1D mode automatically unless it is a tower action
             setActiveTowerKey(null);
-            setActiveDate(dateStr);
-            setViewMode('1D');
         }
+    };
+
+    const handleGridCellLongPress = (dateStr: string, hour: number) => {
+        setActiveTowerKey(null);
+        setActiveDate(dateStr);
+        setViewMode('1D');
+        setEditingKey(`${dateStr}_${hour}`);
     };
 
     const handleEnemyPress = (enemy: EnemyState) => {
@@ -570,9 +858,9 @@ export default function CalendarScreen() {
 
         const [tDateStr, tHourStr] = activeTowerKey.split('_');
         const tColIndex = fourteenDays.indexOf(tDateStr);
-        const tRowIndex = parseInt(tHourStr, 10);
+        const tRowIndex = displayHours.indexOf(parseInt(tHourStr, 10));
 
-        if (tColIndex === -1) return; // Tower is offscreen
+        if (tColIndex === -1 || tRowIndex === -1) return; // The tower is offscreen
 
         const dist = Math.abs(tColIndex - enemy.x) + Math.abs(tRowIndex - enemy.y);
         if (globalPoints < dist) {
@@ -613,6 +901,7 @@ export default function CalendarScreen() {
         setGameOver(false);
         setEnemies([]);
         setTowers({});
+        setWalls([]);
         setActiveTowerKey(null);
     };
 
@@ -621,49 +910,39 @@ export default function CalendarScreen() {
         return item ? item.icon : '';
     };
 
-    // Stable mock generation for opponent routines based on the time key
-    const getMockOpponentTask = React.useCallback((key: string) => {
-        let hash = 0;
-        for (let i = 0; i < key.length; i++) {
-            hash = key.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        const isTask = (Math.abs(hash) % 10) > 2; // Increased frequency for demo purposes
-        if (isTask) {
-            const score = (Math.abs(hash) % 5) + 1;
-            const taskNames = ["Cardio Training", "Study Tactical Maps", "Weapon Maintenance", "Meditation", "Review Logs"];
-            const taskName = taskNames[Math.abs(hash) % taskNames.length];
-            return { text: taskName, score };
-        }
-        return null;
-    }, []);
+    const isAnyMenuOpenOnActiveDate = userDisplayHours.some(h => AIData[`${activeDate}_${h}`]?.has_menu_open);
 
     return (
         <View style={styles.mainContainer}>
             {/* Header Section */}
             <View style={styles.headerContainer}>
-                {/* Shop Hotbar */}
+                {/* The Shop Hotbar - Hidden on 1D view */}
                 <View style={styles.inventoryContainer}>
-                    <Text style={styles.inventoryLabel}>Shop</Text>
-                    <View style={styles.hotbar}>
-                        {SHOP_ITEMS.map((item) => {
-                            const isSelected = selectedShopItem?.type === item.type;
-                            return (
-                                <TouchableOpacity
-                                    key={item.type}
-                                    style={[styles.inventorySlot, isSelected && styles.inventorySlotSelected]}
-                                    onPress={() => setSelectedShopItem(isSelected ? null : item)}
-                                >
-                                    <Text style={styles.shopIconText}>{item.icon}</Text>
-                                    <Text style={[styles.shopCostText, isSelected && { color: '#000', fontWeight: 'bold' }]}>
-                                        {item.cost}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
+                    {viewMode === '2D' && (
+                        <>
+                            <Text style={styles.inventoryLabel}>Shop</Text>
+                            <View style={styles.hotbar}>
+                                {SHOP_ITEMS.map((item) => {
+                                    const isSelected = selectedShopItem?.type === item.type;
+                                    return (
+                                        <TouchableOpacity
+                                            key={item.type}
+                                            style={[styles.inventorySlot, isSelected && styles.inventorySlotSelected]}
+                                            onPress={() => setSelectedShopItem(isSelected ? null : item)}
+                                        >
+                                            <Text style={styles.shopIconText}>{item.icon}</Text>
+                                            <Text style={[styles.shopCostText, isSelected && { color: '#000', fontWeight: 'bold' }]}>
+                                                {item.cost}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </>
+                    )}
                 </View>
 
-                {/* Display the 'End Match' button when interleaving user and opponent's calendar together */}
+                {/* Display the End Match Button when interleaving the opponent's calendar */}
                 {isBattleMode && (
                     <TouchableOpacity style={styles.endMatchBtn} onPress={handleEndMatch}>
                         <Text style={styles.endMatchBtnText}>End{'\n'}Match</Text>
@@ -678,7 +957,7 @@ export default function CalendarScreen() {
             </View>
 
             {viewMode === '2D' ? (
-                /* 2D Grid Section */
+                /* The 2D Grid Section */
                 <View style={styles.gridContainerWrapper}>
                     <ScrollView horizontal style={styles.gridContainer}>
                         <View>
@@ -693,7 +972,7 @@ export default function CalendarScreen() {
                                         style={styles.gridDateButton}
                                         onPress={() => {
                                             setActiveDate(dateStr);
-                                            setViewMode('1D'); // Expand column into to-do list
+                                            setViewMode('1D'); // Expand the column into the to-do list
                                         }}
                                     >
                                         <Text style={styles.gridDateText}>
@@ -704,84 +983,109 @@ export default function CalendarScreen() {
                                 ))}
                             </View>
 
-                            {/* Rows for 24 Hours */}
+                            {/* Rows dynamically mapped to waking hours */}
                             <ScrollView style={styles.gridScrollVertical}>
                                 <View style={{ position: 'relative' }}>
-                                    {hoursOfDay.map((hour) => (
-                                        <View key={`grid-hour-${hour}`} style={[styles.gridRow, { height: isBattleMode ? 91 : 46 }]}>
-                                            <View style={styles.gridTimeColumn}>
-                                                <Text style={styles.gridTimeText}>
-                                                    {`${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`}
-                                                </Text>
-                                            </View>
-                                            {fourteenDays.map((dateStr, colIndex) => {
-                                                const key = `${dateStr}_${hour}`;
-                                                const hasRoutine = !!routines[key];
-                                                const score = AIData[key]?.score;
-                                                const tower = towers[key];
-                                                const isActiveTower = activeTowerKey === key;
-                                                const opponentTask = isBattleMode ? getMockOpponentTask(key) : null;
+                                    {displayHours.map((hour) => {
+                                        const showUserRow = userDisplayHours.includes(hour);
+                                        const showOppRow = isBattleMode && isOppAwake(hour);
+                                        const rowHeight = (showUserRow && showOppRow) ? 91 : 46;
 
-                                                return (
-                                                    <View key={`grid-cell-wrapper-${key}`} style={styles.gridCellWrapper}>
-                                                        {/* Top Half: User's Tasks */}
-                                                        <TouchableOpacity
-                                                            style={[
-                                                                styles.gridCell,
-                                                                isBattleMode && styles.gridCellSplit, // Stacks cells vertically
-                                                                hasRoutine && !tower && styles.gridCellActive,
-                                                                tower && styles.gridCellTower,
-                                                                isActiveTower && styles.gridCellActiveShooter
-                                                            ]}
-                                                            onPress={() => handleGridCellPress(dateStr, hour, colIndex)}
-                                                        >
-                                                            {tower ? (
-                                                                <>
-                                                                    <Text style={{ fontSize: isBattleMode ? 12 : 16 }}>{getTowerIcon(tower.type)}</Text>
-                                                                    <View style={styles.ammoBadge}>
-                                                                        <Text style={styles.ammoText}>{tower.ammo}</Text>
-                                                                    </View>
-                                                                </>
-                                                            ) : hasRoutine && (
-                                                                <Text style={styles.gridCellText}>
-                                                                    {score !== undefined ? score : '📝'}
-                                                                </Text>
+                                        return (
+                                            <View key={`grid-hour-${hour}`} style={[styles.gridRow, { height: rowHeight }]}>
+                                                <View style={styles.gridTimeColumn}>
+                                                    <Text style={styles.gridTimeText}>
+                                                        {`${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`}
+                                                    </Text>
+                                                </View>
+                                                {fourteenDays.map((dateStr, colIndex) => {
+                                                    const key = `${dateStr}_${hour}`;
+                                                    const hasRoutine = !!routines[key];
+                                                    const score = AIData[key]?.score;
+                                                    const tower = towers[key];
+                                                    const isActiveTower = activeTowerKey === key;
+                                                    const opponentTask = showOppRow ? getMockOpponentTask(key, hour) : null;
+                                                    const isWall = walls.includes(`${colIndex}_${hour}`);
+
+                                                    return (
+                                                        <View key={`grid-cell-wrapper-${key}`} style={styles.gridCellWrapper}>
+                                                            {/* Top Half: User's Tasks */}
+                                                            {showUserRow && (
+                                                                <TouchableOpacity
+                                                                    style={[
+                                                                        styles.gridCell,
+                                                                        showOppRow && styles.gridCellSplit, // Halves the height dynamically when stacking
+                                                                        hasRoutine && !tower && styles.gridCellActive,
+                                                                        tower && styles.gridCellTower,
+                                                                        isWall && styles.wallCell, // Applies wall styling if present
+                                                                        isActiveTower && styles.gridCellActiveShooter
+                                                                    ]}
+                                                                    onPress={() => handleGridCellPress(dateStr, hour)}
+                                                                    onLongPress={() => handleGridCellLongPress(dateStr, hour)}
+                                                                    activeOpacity={0.8}
+                                                                >
+                                                                    {tower ? (
+                                                                        <>
+                                                                            <Text style={{ fontSize: isBattleMode ? 12 : 16, textAlign: 'center' }}>
+                                                                                {getTowerIcon(tower.type)}{isWall ? '\n🐊' : ''}
+                                                                            </Text>
+                                                                            <View style={styles.ammoBadge}>
+                                                                                <Text style={styles.ammoText}>{tower.ammo}</Text>
+                                                                            </View>
+                                                                        </>
+                                                                    ) : hasRoutine ? (
+                                                                        <Text style={[styles.gridCellText, { textAlign: 'center' }]}>
+                                                                            {score !== undefined ? score : '📝'}{isWall ? '\n🐊' : ''}
+                                                                        </Text>
+                                                                    ) : isWall ? (
+                                                                        <Text style={{ fontSize: isBattleMode ? 12 : 16, textAlign: 'center' }}>🐊</Text>
+                                                                    ) : null}
+                                                                </TouchableOpacity>
                                                             )}
-                                                        </TouchableOpacity>
 
-                                                        {/* Bottom Half: Opponent's Tasks */}
-                                                        {isBattleMode && (
-                                                            <View style={[
-                                                                styles.gridCell,
-                                                                styles.gridCellSplit,
-                                                                styles.gridCellOpponent,
-                                                                opponentTask ? styles.gridCellOpponentActive : styles.gridCellOpponentEmpty
-                                                            ]}>
-                                                                {opponentTask && (
-                                                                    <Text style={styles.gridCellTextOpponent}>
-                                                                        {opponentTask.score}
-                                                                    </Text>
-                                                                )}
-                                                            </View>
-                                                        )}
-                                                    </View>
-                                                );
-                                            })}
-                                        </View>
-                                    ))}
+                                                            {/* Bottom Half: Opponent's Tasks - Hidden if the opponent is sleeping */}
+                                                            {showOppRow && (
+                                                                <TouchableOpacity
+                                                                    style={[
+                                                                        styles.gridCell,
+                                                                        styles.gridCellSplit,
+                                                                        styles.gridCellOpponent,
+                                                                        opponentTask ? styles.gridCellOpponentActive : styles.gridCellOpponentEmpty,
+                                                                        !showUserRow && { borderTopWidth: 0 }, // Clean the border if the user row is hidden
+                                                                        isWall && styles.wallCell
+                                                                    ]}
+                                                                    onPress={() => handleGridCellPress(dateStr, hour)}
+                                                                    onLongPress={() => handleGridCellLongPress(dateStr, hour)}
+                                                                    activeOpacity={0.8}
+                                                                >
+                                                                    {opponentTask ? (
+                                                                        <Text style={[styles.gridCellTextOpponent, { textAlign: 'center' }]}>
+                                                                            {opponentTask.score}{isWall ? '\n🐊' : ''}
+                                                                        </Text>
+                                                                    ) : isWall ? (
+                                                                        <Text style={{ fontSize: 10, textAlign: 'center' }}>🐊</Text>
+                                                                    ) : null}
+                                                                </TouchableOpacity>
+                                                            )}
+                                                        </View>
+                                                    );
+                                                })}
+                                            </View>
+                                        );
+                                    })}
 
                                     {/* Enemies Rendered Over the Grid */}
                                     {enemies.map(enemy => {
                                         const leftPos = 80 + (enemy.x * 60);
-                                        const topPos = enemy.y * (isBattleMode ? 91 : 46); // Aligns precisely with row heights
+                                        const topPos = getRowTopPos(enemy.y); // Dynamic Y offset based on the opponent's sleep state rows
 
                                         let distanceCostStr = '';
                                         let affordClass = false;
                                         if (activeTowerKey) {
                                             const [tDateStr, tHourStr] = activeTowerKey.split('_');
                                             const tColIndex = fourteenDays.indexOf(tDateStr);
-                                            const tRowIndex = parseInt(tHourStr, 10);
-                                            if (tColIndex !== -1) {
+                                            const tRowIndex = displayHours.indexOf(parseInt(tHourStr, 10));
+                                            if (tColIndex !== -1 && tRowIndex !== -1) {
                                                 const dist = Math.abs(tColIndex - enemy.x) + Math.abs(tRowIndex - enemy.y);
                                                 distanceCostStr = dist.toString();
                                                 affordClass = globalPoints >= dist;
@@ -797,7 +1101,7 @@ export default function CalendarScreen() {
                                                     enemy.type === 'speedster' && styles.enemySpeedster,
                                                     enemy.freeze > 0 && styles.enemyFrozen,
                                                     enemy.fire > 0 && styles.enemyBurning,
-                                                    { left: leftPos + 13, top: topPos + 5.5 } // Centers directly within the top box (user's lane)
+                                                    { left: leftPos + 13, top: topPos + 5.5 } // Centers directly within the top box (the user's lane)
                                                 ]}
                                                 onPress={() => handleEnemyPress(enemy)}
                                             >
@@ -820,8 +1124,8 @@ export default function CalendarScreen() {
                     </ScrollView>
                 </View>
             ) : (
-                /* Scrollable hour bars Section (1D mode) */
-                <ScrollView style={styles.calendarDayView}>
+                /* Non-scrollable hour bars Section (1D mode) - Maps exclusively over the user's active hours */
+                <View style={styles.calendarDayView}>
                     <TouchableOpacity
                         style={styles.currentDateBanner}
                         onPress={() => setViewMode(prev => prev === '1D' ? '2D' : '1D')}
@@ -831,102 +1135,109 @@ export default function CalendarScreen() {
                         </Text>
                     </TouchableOpacity>
 
-                    {hoursOfDay.map((hour) => {
-                        const key = `${activeDate}_${hour}`;
-                        const isEditing = editingKey === key;
-                        const timeLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
+                    <View style={{ flex: 1 }}>
+                        {userDisplayHours.map((hour) => {
+                            const key = `${activeDate}_${hour}`;
+                            const isEditing = editingKey === key;
+                            const timeLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
 
-                        const hasRoutine = !!routines[key];
-                        const currentAIData = AIData[key] || {};
+                            const hasRoutine = !!routines[key];
+                            const currentAIData = AIData[key] || {};
+                            const isMenuOpen = !!currentAIData.has_menu_open;
+                            const shouldShrink = isAnyMenuOpenOnActiveDate && !isMenuOpen;
 
-                        return (
-                            <View key={key}>
-                                <View style={styles.timeSlot}>
-                                    <Text style={styles.timeLabel}>{timeLabel}</Text>
+                            return (
+                                <View key={key} style={{ flex: shouldShrink ? 0 : 1 }}>
+                                    <View style={[styles.timeSlot, { flex: isAnyMenuOpenOnActiveDate ? 0 : 1, paddingVertical: shouldShrink ? 0 : 2 }]}>
+                                        <Text style={styles.timeLabel}>{timeLabel}</Text>
 
-                                    <TouchableOpacity
-                                        style={styles.eventArea}
-                                        activeOpacity={1}
-                                        onPress={() => setEditingKey(key)}
-                                    >
-                                        {isEditing ? (
-                                            <TextInput
-                                                autoFocus
-                                                value={routines[key] || ''}
-                                                onChangeText={(t) => setRoutines({ ...routines, [key]: t })}
-
-                                                // Clicking away triggers: save + AI
-                                                onBlur={() => handleSave(hour)}
-
-                                                // Tell the keyboard to vanish when 'enter' is pressed
-                                                submitBehavior="blurAndSubmit"
-
-                                                style={styles.textInput}
-                                            />
-                                        ) : (
-                                            <Text style={{ color: routines[key] ? '#333' : '#007bff' }}>
-                                                {routines[key] || '+ Click to schedule routine'}
-                                            </Text>
-                                        )}
-                                    </TouchableOpacity>
-
-                                    {/* Triangle Button */}
-                                    {hasRoutine && !isEditing && (
                                         <TouchableOpacity
-                                            style={styles.triangleButton}
-                                            onPress={() => toggleEventDetails(hour)}
-                                            // Make the button visually inactive if there's no score yet
-                                            activeOpacity={currentAIData.score !== undefined ? 0.2 : 1}
+                                            style={[styles.eventArea, { minHeight: 0 }]}
+                                            activeOpacity={1}
+                                            onPress={() => setEditingKey(key)}
                                         >
-                                            {currentAIData.score !== undefined ? (
-                                                <Text style={styles.triangleScoreText}>◁ {currentAIData.score}</Text>
+                                            {isEditing ? (
+                                                <TextInput
+                                                    autoFocus
+                                                    value={routines[key] || ''}
+                                                    onChangeText={(t) => setRoutines({ ...routines, [key]: t })}
+
+                                                    // Clicking away triggers: save and AI
+                                                    onBlur={() => handleSave(hour)}
+
+                                                    // Tell the keyboard to vanish when 'enter' is pressed
+                                                    submitBehavior="blurAndSubmit"
+
+                                                    style={[styles.textInput, { padding: 2 }]}
+                                                />
                                             ) : (
-                                                <View style={styles.triangleIcon} />
+                                                <Text style={{ color: routines[key] ? '#333' : '#007bff' }}>
+                                                    {routines[key] || '+ Click to schedule routine'}
+                                                </Text>
                                             )}
                                         </TouchableOpacity>
+
+                                        {/* The Triangle Button */}
+                                        {hasRoutine && !isEditing && (
+                                            <TouchableOpacity
+                                                style={styles.triangleButton}
+                                                onPress={() => toggleEventDetails(hour)}
+                                                // Make the button visually inactive if there is no score yet
+                                                activeOpacity={currentAIData.score !== undefined ? 0.2 : 1}
+                                            >
+                                                {currentAIData.score !== undefined ? (
+                                                    <Text style={styles.triangleScoreText}>◁ {currentAIData.score}</Text>
+                                                ) : (
+                                                    <View style={styles.triangleIcon} />
+                                                )}
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+
+                                    {/* The row expansion rectangle (the event's menu) */}
+                                    {isMenuOpen && (
+                                        <View style={[styles.expandedRow, { flex: 6, minHeight: 0 }]}>
+                                            {/* Display the 'Done' button ONLY if the currently viewed day is actually 'Today' */}
+                                            {activeDate === currentLogicalDate && (
+                                                <TouchableOpacity
+                                                    style={styles.doneButton}
+                                                    onPress={() => handleCompleteTask(hour)}
+                                                >
+                                                    <Text style={styles.doneText}>Press{'\n'}when done{'\n'}with task</Text>
+                                                </TouchableOpacity>
+                                            )}
+
+                                            <TouchableOpacity
+                                                style={styles.reasoningArea}
+                                                activeOpacity={0.8}
+                                                onPress={() => {
+                                                    if (debatedKeys.includes(key)) {
+                                                        alert("Sorry, but the case is closed.");
+                                                    } else {
+                                                        setDebateKey(key);
+                                                    }
+                                                }}
+                                            >
+                                                <Text style={styles.reasoningText} numberOfLines={2}>
+                                                    {currentAIData.reasoning}
+                                                </Text>
+
+                                                <Text style={styles.debateHintText}>
+                                                    {debatedKeys.includes(key)
+                                                        ? "case closed by High Court"
+                                                        : "tap to debate this score"}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     )}
                                 </View>
-
-                                {/* Row Expansion rectangle (event's menu) */}
-                                {currentAIData.has_menu_open && (
-                                    <View style={styles.expandedRow}>
-                                        <TouchableOpacity
-                                            style={styles.doneButton}
-                                            onPress={() => handleCompleteTask(hour)}
-                                        >
-                                            <Text style={styles.doneText}>Press{'\n'}when done{'\n'}with task</Text>
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            style={styles.reasoningArea}
-                                            activeOpacity={0.8}
-                                            onPress={() => {
-                                                if (debatedKeys.includes(key)) {
-                                                    alert("Sorry, but the case is closed.");
-                                                } else {
-                                                    setDebateKey(key);
-                                                }
-                                            }}
-                                        >
-                                            <Text style={styles.reasoningText}>
-                                                {currentAIData.reasoning}
-                                            </Text>
-
-                                            <Text style={styles.debateHintText}>
-                                                {debatedKeys.includes(key)
-                                                    ? "case closed by High Court"
-                                                    : "tap to debate this score"}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-                            </View>
-                        );
-                    })}
-                </ScrollView>
+                            );
+                        })}
+                    </View>
+                </View>
             )}
 
-            {/* Game Over Overlay */}
+            {/* The Game Over Overlay */}
             <Modal visible={gameOver} transparent={true} animationType="fade">
                 <View style={styles.gameOverOverlay}>
                     <Text style={styles.gameOverTitle}>CALENDAR BREACH</Text>
@@ -1069,7 +1380,7 @@ const styles = StyleSheet.create({
     gridTimePlaceholder: {
         width: 80,
         borderRightWidth: 2,
-        borderRightColor: '#f44336', // Red line between time and today
+        borderRightColor: '#f44336', // RED LINE between time and Today
         justifyContent: 'flex-end',
         alignItems: 'flex-end',
         paddingRight: 6,
@@ -1093,7 +1404,7 @@ const styles = StyleSheet.create({
     gridTimeColumn: {
         width: 80, paddingVertical: 12,
         alignItems: 'center', justifyContent: 'center',
-        borderRightWidth: 2, borderRightColor: '#f44336', // Red line between time and today
+        borderRightWidth: 2, borderRightColor: '#f44336', // RED LINE between time and Today
         backgroundColor: '#f8fafc'
     },
     gridTimeText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
@@ -1103,22 +1414,25 @@ const styles = StyleSheet.create({
         borderRightWidth: 1,
         borderRightColor: '#e2e8f0',
         flexDirection: 'column',
+        height: '100%', // Ensures it perfectly fills the row height regardless of scaling
     },
     gridCell: {
         flex: 1,
         width: '100%',
-        minHeight: 45,
+        minHeight: 45, // Set to the standard row height
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'transparent'
     },
-    gridCellSplit: {},
+    gridCellSplit: {
+        // Naturally stack two 45.5px tall cells automatically due to the flex flex-direction column on the parent
+    },
     gridCellOpponent: {
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
     },
     gridCellOpponentActive: {
-        backgroundColor: '#fda4af', // Opponent task background
+        backgroundColor: '#fda4af', // The opponent task background
     },
     gridCellOpponentEmpty: {
         backgroundColor: '#fff1f2', // Empty background
@@ -1127,6 +1441,14 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: 'bold',
         color: '#881337',
+    },
+
+    wallCell: {
+        backgroundColor: '#b91c1c', // Deep brick-red
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRightWidth: 1,
+        borderRightColor: '#7f1d1d'
     },
 
     gridCellActive: { backgroundColor: '#bde0fe' },
