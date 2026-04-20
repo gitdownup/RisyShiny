@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Session } from '@supabase/supabase-js';
+import { Tabs, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 import supabase from 'src/config/supabaseClient';
 import LoginScreen from 'src/LoginScreen';
 import SignupScreen from 'src/SignupScreen';
@@ -13,6 +13,12 @@ export default function TabLayout() {
   const router = useRouter();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [authView, setAuthView] = useState<AuthView>('login');
+
+  useEffect(() => {
+    if (session === null) {
+      setAuthView('login');
+    }
+  }, [session]);
 
   useEffect(() => {
     // Subscribe first so we don't miss the initial auth event

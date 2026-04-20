@@ -1,14 +1,13 @@
 import React from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { runAuthRequest } from 'src/config/authErrorHandling';
 import supabase from 'src/config/supabaseClient';
@@ -37,11 +36,7 @@ export default function SignupScreen({ onGoToLoginScreen }: { onGoToLoginScreen:
       }),
       onSuccess: (data) => {
         if (data.user) {
-          Alert.alert(
-            'Success!',
-            'Check your email for a confirmation link!',
-            [{ text: 'OK', onPress: () => onGoToLoginScreen() }],
-          );
+          onGoToLoginScreen();
         }
       },
     });

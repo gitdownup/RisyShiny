@@ -1,4 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { User } from '@supabase/supabase-js';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -8,9 +12,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { User } from '@supabase/supabase-js';
 import supabase from 'src/config/supabaseClient';
 
 // ---------------------------------------------------------------------------
@@ -332,9 +333,11 @@ export default function HomeScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData]),
+  );
 
   const handleTaskTap = async (task: Task) => {
     const status = getTaskStatus(task, completedIds, activeIds);

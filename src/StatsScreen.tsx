@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -156,7 +157,7 @@ export default function StatsScreen() {
     // Fetch profile
     const { data: profile } = await supabase
       .from('profiles')
-      .select('global_score, streak')
+      .select('global_score, daily_streak')
       .eq('id', user.id)
       .single();
 
@@ -190,8 +191,8 @@ export default function StatsScreen() {
       .gte('start_time', sevenAgo.toISOString());
 
     setData({
-      globalScore: (profile as { global_score: number; streak?: number } | null)?.global_score ?? 0,
-      streak: (profile as { global_score: number; streak?: number } | null)?.streak ?? 0,
+      globalScore: (profile as { global_score: number; daily_streak?: number } | null)?.global_score ?? 0,
+      streak: (profile as { global_score: number; daily_streak?: number } | null)?.daily_streak ?? 0,
       todayCount: todayEvents?.length ?? 0,
       weekStats: buildWeekStats(weekEvents ?? []),
     });
@@ -199,9 +200,11 @@ export default function StatsScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadStats();
+    }, [loadStats]),
+  );
 
   if (loading) {
     return (

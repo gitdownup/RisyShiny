@@ -1,15 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
   ActivityIndicator,
-  Modal as RNModal
+  Alert,
+  Modal as RNModal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import supabase from 'src/config/supabaseClient';
-import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
 
 // ---------------------------------------------------------------------------
 // TypeScript Interfaces
@@ -104,8 +107,13 @@ function ProfileRow({ iconName, label, value }: ProfileRowProps) {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [globalScore, setGlobalScore] = useState<number>(0);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [signingOut, setSigningOut] = useState<boolean>(false);
+  const [adminModalVisible, setAdminModalVisible] = useState<boolean>(false);
+  const [adminPointsInput, setAdminPointsInput] = useState<string>('');
+  const [adminSubmitting, setAdminSubmitting] = useState<boolean>(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
 
   const [modalConfig, setModalConfig] = useState<ModalProps>({ visible: false });
 
@@ -122,10 +130,10 @@ export default function App() {
 
       setUser(user);
 
-      // 3. Fetch global_score based on your database schema
+      // 3. Fetch global_score and is_admin from database
       const { data: profileData, error: profileError } = await supabase
           .from('profiles')
-          .select('global_score') // Fix: Changed from 'score' to 'global_score'
+          .select('global_score, is_admin')
           .eq('id', user.id)
           .single();
 
@@ -135,8 +143,10 @@ export default function App() {
 
       // Set score if data exists
       if (profileData && profileData.global_score !== undefined) {
-        setGlobalScore(profileData.global_score); // Fix: Updated to global_score
+        setGlobalScore(profileData.global_score);
       }
+
+      setIsAdmin(Boolean(profileData?.is_admin));
 
     } catch (err) {
       console.error(err);
@@ -147,25 +157,36 @@ export default function App() {
   }, []);
 
 
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadProfile();
+    }, [loadProfile]),
+  );
 
   const handleSignOut = () => {
     setModalConfig({
       visible: true,
-      title: 'Sign Out',
-      message: 'Are you sure you want to sign out?',
+      title: 'Log out',
+      message: 'Are you sure you want to log out?',
       isDestructive: true,
-      confirmText: 'Sign Out',
+      confirmText: 'Log out',
       onCancel: () => setModalConfig({ visible: false }),
-      onConfirm: () => {
+      onConfirm: async () => {
         setModalConfig({ visible: false });
         setSigningOut(true);
-        setTimeout(() => {
+
+        const { error } = await supabase.auth.signOut();
+
+        if (error) {
+          console.error('signOut error:', error.message);
           setSigningOut(false);
-          setUser(null);
-        }, 1000);
+          Alert.alert('Log out failed', 'Please try again.');
+          return;
+        }
+
+        setUser(null);
+        setGlobalScore(0);
+        setIsAdmin(false);
       }
     });
   };
@@ -197,6 +218,41 @@ export default function App() {
     });
   };
 
+  const handleOpenAdminModal = () => {
+    setAdminError(null);
+    setAdminPointsInput('');
+    setAdminModalVisible(true);
+  };
+
+  const handleSetAdminPoints = async () => {
+    const trimmedValue = adminPointsInput.trim();
+    if (!/^[1-9]\d*$/.test(trimmedValue)) {
+      setAdminError('Enter a positive integer.');
+      return;
+    }
+
+    const targetPoints = Number.parseInt(trimmedValue, 10);
+
+    setAdminSubmitting(true);
+    setAdminError(null);
+
+    const { error } = await supabase.rpc('admin_set_global_points', {
+      target_points: targetPoints,
+    });
+
+    setAdminSubmitting(false);
+
+    if (error) {
+      console.error('admin_set_global_points error:', error.message);
+      setAdminError('Could not update points. Please try again.');
+      return;
+    }
+
+    setGlobalScore(targetPoints);
+    setAdminModalVisible(false);
+    setAdminPointsInput('');
+  };
+
   const getUserDisplayName = (u: User | null): string => {
     if (!u) return '';
     const name = u.user_metadata?.full_name;
@@ -226,8 +282,32 @@ export default function App() {
   return (
       <View style={styles.container}>
         <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle}>Profile</Text>
 
-          <Text style={styles.headerTitle}>Profile</Text>
+            <View style={styles.headerActions}>
+              {isAdmin ? (
+                <TouchableOpacity style={styles.adminButton} onPress={handleOpenAdminModal} activeOpacity={0.8}>
+                  <Text style={styles.adminButtonText}>ADMIN</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                  style={[styles.signOutButton, signingOut && styles.signOutDisabled]}
+                  onPress={handleSignOut}
+                  disabled={signingOut}
+              >
+                {signingOut ? (
+                    <ActivityIndicator size="small" color="#ef4444" />
+                ) : (
+                    <>
+                      <Feather name="log-out" size={16} color="#ef4444" />
+                      <Text style={styles.signOutText}>Log out</Text>
+                    </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
 
           {/* Avatar + name */}
           <View style={styles.avatarSection}>
@@ -266,26 +346,62 @@ export default function App() {
             </View>
           </View>
 
-          {/* Sign out */}
-          <TouchableOpacity
-              style={[styles.signOutButton, signingOut && styles.signOutDisabled]}
-              onPress={handleSignOut}
-              disabled={signingOut}
-          >
-            {signingOut ? (
-                <ActivityIndicator size="small" color="#ef4444" />
-            ) : (
-                <>
-                  <Feather name="log-out" size={20} color="#ef4444" />
-                  <Text style={styles.signOutText}>Sign Out</Text>
-                </>
-            )}
-          </TouchableOpacity>
-
-        </View>
+  </View>
 
         {/* Reusable Modal */}
         <Modal {...modalConfig} />
+
+        <RNModal visible={adminModalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.adminModalContent}>
+              <Text style={styles.modalTitle}>Set points</Text>
+              <Text style={styles.modalMessage}>
+                Enter a positive integer value to set the global points total.
+              </Text>
+
+              <View style={styles.adminInputRow}>
+                <TextInput
+                  style={styles.adminInput}
+                  value={adminPointsInput}
+                  onChangeText={(text) => {
+                    setAdminPointsInput(text);
+                    if (adminError) setAdminError(null);
+                  }}
+                  placeholder="0"
+                  keyboardType="number-pad"
+                  editable={!adminSubmitting}
+                />
+                <TouchableOpacity
+                  style={[styles.adminSetButton, adminSubmitting && styles.adminSetButtonDisabled]}
+                  onPress={handleSetAdminPoints}
+                  activeOpacity={0.85}
+                  disabled={adminSubmitting}
+                >
+                  {adminSubmitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.adminSetButtonText}>Set</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {adminError ? <Text style={styles.adminErrorText}>{adminError}</Text> : null}
+
+              <TouchableOpacity
+                style={styles.adminCancelButton}
+                onPress={() => {
+                  setAdminModalVisible(false);
+                  setAdminError(null);
+                  setAdminPointsInput('');
+                }}
+                activeOpacity={0.8}
+                disabled={adminSubmitting}
+              >
+                <Text style={styles.adminCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </RNModal>
       </View>
   );
 }
@@ -322,8 +438,92 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 32,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 16,
+    marginBottom: 24,
+    gap: 12,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  adminButton: {
+    backgroundColor: '#111111',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  adminButtonText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  adminModalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  adminInputRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  adminInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#111827',
+    backgroundColor: '#ffffff',
+  },
+  adminSetButton: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minWidth: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminSetButtonDisabled: {
+    opacity: 0.7,
+  },
+  adminSetButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  adminErrorText: {
+    marginTop: 10,
+    color: '#dc2626',
+    fontSize: 13,
+  },
+  adminCancelButton: {
+    marginTop: 16,
+    alignSelf: 'flex-end',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  adminCancelButtonText: {
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: '600',
   },
   avatarSection: {
     alignItems: 'center',
@@ -466,20 +666,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    paddingVertical: 16,
-    borderWidth: 2,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1.5,
     borderColor: '#fee2e2',
-    gap: 8,
+    gap: 6,
   },
   signOutDisabled: {
     opacity: 0.6,
   },
   signOutText: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#dc2626',
-    marginLeft: 8,
   },
   modalOverlay: {
     flex: 1,
