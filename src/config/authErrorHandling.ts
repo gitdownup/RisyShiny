@@ -13,6 +13,7 @@ type AuthRequestOptions = {
   onSuccess: (data: any) => void;
 };
 
+// Tell the user why their email/password was rejected
 export const getAuthErrorMessage = (action: AuthAction, rawMessage: string) => {
   const message = rawMessage.toLowerCase();
 

@@ -26,6 +26,7 @@ export default function SignupScreen({ onGoToLoginScreen }: { onGoToLoginScreen:
       return;
     }
 
+    // Automatically create profile row and connects profile to event table
     await runAuthRequest({
       action: 'signup',
       setLoading,

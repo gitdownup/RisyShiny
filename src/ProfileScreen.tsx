@@ -130,7 +130,7 @@ export default function App() {
 
       setUser(user);
 
-      // 3. Fetch global_score and is_admin from database
+      // Fetch global_score and is_admin from database
       const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('global_score, is_admin')
@@ -211,6 +211,7 @@ export default function App() {
     setAdminModalVisible(true);
   };
 
+  // Admin accounts are allowed to set their points to any positive integer value.
   const handleSetAdminPoints = async () => {
     const trimmedValue = adminPointsInput.trim();
     if (!/^[1-9]\d*$/.test(trimmedValue)) {

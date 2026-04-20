@@ -31,6 +31,7 @@ export default function LoginScreen({ onLogin, onGoToSignupScreen }: LoginScreen
       return;
     }
 
+    // Supabase will hold logged in user for the duration of the session
     await runAuthRequest({
       action: 'login',
       setLoading,

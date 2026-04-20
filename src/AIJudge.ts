@@ -9,6 +9,7 @@ interface AIJudgeResult {
 
 export async function getTaskDifficulty(taskFinished: string): Promise<AIJudgeResult> {
     try {
+        // Supabase functions will handle the request and the reponse from the model
         const { data, error } = await supabase.functions.invoke('judge-task', {
             body: { 
                 action: 'judge', 
@@ -24,6 +25,7 @@ export async function getTaskDifficulty(taskFinished: string): Promise<AIJudgeRe
 
 export async function getRejudgedTaskDifficulty(taskFinished: string, userArgument: string): Promise<AIJudgeResult> {
     try {
+        // Supabase functions will handle the request and the reponse from the model
         const { data, error } = await supabase.functions.invoke('judge-task', {
             body: { 
                 action: 'rejudge', 
