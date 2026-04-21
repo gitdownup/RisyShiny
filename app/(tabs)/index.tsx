@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  Alert,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -328,6 +329,25 @@ export default function HomeScreen() {
 
     if (profileData) {
       setProfile(profileData as Profile);
+      
+      // Check and reset broken streaks (if user didn't complete tasks yesterday)
+      const { error: streakCheckErr } = await supabase.rpc('check_and_reset_broken_streak', {
+        user_id: u.id,
+      });
+      if (streakCheckErr) {
+        console.error('check_and_reset_broken_streak error:', streakCheckErr.message);
+      } else {
+        // Refresh profile to get the latest streak value
+        const { data: updatedProfile } = await supabase
+          .from('profiles')
+          .select('global_score, streak')
+          .eq('id', u.id)
+          .single();
+        
+        if (updatedProfile) {
+          setProfile(updatedProfile as Profile);
+        }
+      }
     }
 
     setLoading(false);
@@ -339,21 +359,44 @@ export default function HomeScreen() {
     }, [loadData]),
   );
 
-  const handleTaskTap = async (task: Task) => {
-    const status = getTaskStatus(task, completedIds, activeIds);
+const handleTaskTap = async (task: Task) => {
+  const status = getTaskStatus(task, completedIds, activeIds);
 
-    if (status === 'pending') {
-      setActiveIds(prev => new Set([...prev, task.id]));
-    } else if (status === 'active') {
-      // Mark completed optimistically
-      setCompletedIds(prev => new Set([...prev, task.id]));
-      setCompletedCount(prev => prev + 1);
+  if (status === 'pending') {
+    setActiveIds(prev => new Set([...prev, task.id]));
+  } else if (status === 'active') {
+    // Mark completed optimistically
+    setCompletedIds(prev => new Set([...prev, task.id]));
+    setCompletedCount(prev => prev + 1);
 
+    try {
       // Award points via DB function
       const { error: rpcErr } = await supabase.rpc('score_task', {
         target_event_id: task.id,
       });
-      if (rpcErr) console.error('score_task error:', rpcErr.message);
+      if (rpcErr) throw new Error(rpcErr.message);
+
+      // Update streak after successful task completion
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user) {
+        try {
+          const { error: streakErr } = await supabase.rpc('update_streak', {
+            user_id: userData.user.id,
+          });
+          if (!streakErr) {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('streak')
+              .eq('id', userData.user.id)
+              .single();
+            if (profileData) {
+              setProfile(prev => prev ? { ...prev, streak: profileData.streak } : null);
+            }
+          }
+        } catch {
+          // Streak failure is silent — never blocks task completion
+        }
+      }
 
       // Delete event from DB
       await supabase.from('events').delete().eq('id', task.id);
@@ -367,9 +410,17 @@ export default function HomeScreen() {
           return next;
         });
       }, 1400);
+
+    } catch {
+      // Roll back optimistic update if score_task failed
+      setCompletedIds(prev => { const n = new Set(prev); n.delete(task.id); return n; });
+      setCompletedCount(prev => prev - 1);
+      setActiveIds(prev => new Set([...prev, task.id]));
+      Alert.alert('Connection error', 'Could not save task. Please try again.');
     }
-    // completed state: no further action
-  };
+  }
+  // completed state: no further action
+};
 
   const timeLeftMinutes = useMemo(() => {
     if (tasks.length === 0) return 0;

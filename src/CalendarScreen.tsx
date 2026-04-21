@@ -769,6 +769,15 @@ export default function CalendarScreen() {
             });
             if (rpcError) throw rpcError;
 
+            // Update streak after successful task completion
+            const { data: userData } = await supabase.auth.getUser();
+            if (userData?.user) {
+                const { error: streakErr } = await supabase.rpc('update_streak', {
+                    user_id: userData.user.id,
+                });
+                if (streakErr) console.error('update_streak error:', streakErr.message);
+            }
+
             // Delete the event
             const {error: deleteError} = await supabase
                 .from('events')
