@@ -1,10 +1,10 @@
 import { useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getRejudgedTaskDifficulty, getTaskDifficulty } from 'src/AIJudge';
 import supabase from 'src/config/supabaseClient';
 import { notificationService } from 'src/notifications/NotificationService';
-import { router } from 'expo-router';
 
 interface AIDataState {
     score?: number;
@@ -52,6 +52,7 @@ const SHOP_ITEMS = [
 export default function CalendarScreen() {
     // Until DB loads: isBattleMode and setIsBattleMode will be false
     const [isBattleMode, setIsBattleMode] = React.useState(false);
+    const [isAdmin, setIsAdmin] = React.useState(false);
 
     const handleEndMatch = async () => {
         // Save the previous state in case the DB connection fails
@@ -293,7 +294,7 @@ export default function CalendarScreen() {
 
                 const { data, error } = await supabase
                     .from('profiles')
-                    .select('global_score, bedtime, tactical_game_state, is_in_multiplayer_mode')
+                    .select('global_score, bedtime, tactical_game_state, is_in_multiplayer_mode, is_admin')
                     .eq('id', user.id)
                     .single();
 
@@ -305,6 +306,7 @@ export default function CalendarScreen() {
                 if (data) {
                     if (data.global_score !== undefined) setGlobalPoints(data.global_score);
                     if (data.bedtime !== undefined && data.bedtime !== null) setUserBedtime(data.bedtime);
+                    setIsAdmin(Boolean(data.is_admin));
                     if (data.is_in_multiplayer_mode !== undefined && data.is_in_multiplayer_mode !== null) {
                         setIsBattleMode(data.is_in_multiplayer_mode);
                     }
@@ -1074,6 +1076,29 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                 )}
 
+                {/* Advance Time Button (Admin only) */}
+                {isAdmin ? (
+                    <View style={styles.controls}>
+                        <TouchableOpacity
+                            style={styles.btnAdvance}
+                            onPress={() => {
+                                if (!isAdmin) return;
+
+                                // Calculate tomorrow based on the current logical date
+                                const [year, month, day] = currentLogicalDate.split('-').map(Number);
+                                const nextDate = new Date(year, month - 1, day + 1);
+                                const nextDateStr = getLocalDateString(nextDate);
+
+                                // Trigger your existing timeline shift logic
+                                handleAdvanceTime(currentLogicalDate);
+                                setCurrentLogicalDate(nextDateStr);
+                            }}
+                        >
+                            <Text style={styles.btnAdvanceText}>Advance 1 Day Ahead{'\n'}(Shift Calendar)</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
+
                 {/* Global Points Display */}
                 <View style={styles.pointsContainer}>
                     <Text style={styles.pointsLabel}>Global Points</Text>
@@ -1574,6 +1599,24 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderRightWidth: 1,
         borderRightColor: '#7f1d1d'
+    },
+
+    controls: {
+        justifyContent: 'center',
+    },
+    btnAdvance: {
+        backgroundColor: '#3b82f6', // A nice blue to distinguish it from the red End Match button
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        marginHorizontal: 10,
+    },
+    btnAdvanceText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 9,
+        textAlign: 'center',
+        textTransform: 'uppercase'
     },
 
     gridCellActive: { backgroundColor: '#bde0fe' },
